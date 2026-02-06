@@ -7,8 +7,9 @@ export async function GET(request: Request) {
   const code = searchParams.get("code");
   const next = searchParams.get("next");
 
-  if (code) {
-    const cookieStore = await cookies();
+  try {
+    if (code) {
+      const cookieStore = await cookies();
     
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -142,11 +143,61 @@ export async function GET(request: Request) {
           return NextResponse.redirect(getRedirectUrl("/auth?error=alumni_account"));
         }
 
-        // New school user - redirect to auth to complete signup
-        return NextResponse.redirect(getRedirectUrl("/auth"));
+        // New school user signing up via Google - check if recently created
+        const userCreatedAt = new Date(data.user.created_at);
+        const now = new Date();
+        const timeDiffMinutes = (now.getTime() - userCreatedAt.getTime()) / (1000 * 60);
+        const isNewUser = timeDiffMinutes < 5;
+
+        if (!isNewUser) {
+          // This is a login attempt but user doesn't have a school record
+          await supabase.auth.signOut();
+          return NextResponse.redirect(getRedirectUrl("/auth?error=no_account"));
+        }
+
+        // Create a new school record for this user
+        const fullName = data.user.user_metadata?.full_name || 
+                         data.user.user_metadata?.name || 
+                         data.user.email?.split("@")[0] || 
+                         "School Admin";
+
+        const { error: insertError } = await supabase
+          .from("schools")
+          .insert({
+            user_id: data.user.id,
+            admin_email: data.user.email!,
+            admin_name: fullName,
+            school_name: "",
+            location: "",
+            population: "",
+            staff_count: "",
+            overview: "",
+            onboarding_completed: false,
+          });
+
+        if (insertError) {
+          console.error("Error creating school record:", insertError);
+          return NextResponse.redirect(getRedirectUrl("/auth?error=signup_failed"));
+        }
+
+        // New school user - redirect to onboarding
+        return NextResponse.redirect(getRedirectUrl("/onboarding"));
       }
 
       // Default fallback - check what type of user this is
+      // Check school first so school users always go to dashboard, not feed
+      const { data: school } = await supabase
+        .from("schools")
+        .select("onboarding_completed")
+        .eq("user_id", data.user.id)
+        .single();
+
+      if (school) {
+        // School user - redirect based on onboarding status
+        const redirectPath = school.onboarding_completed ? "/dashboard" : "/onboarding";
+        return NextResponse.redirect(getRedirectUrl(redirectPath));
+      }
+
       const { data: alumniUser } = await supabase
         .from("alumni_users")
         .select("id, school_id, school_name")
@@ -162,24 +213,15 @@ export async function GET(request: Request) {
         return NextResponse.redirect(getRedirectUrl("/complete-profile"));
       }
 
-      // Check if user is a school
-      const { data: school } = await supabase
-        .from("schools")
-        .select("onboarding_completed")
-        .eq("user_id", data.user.id)
-        .single();
-
-      if (school) {
-        // School user - redirect based on onboarding status
-        const redirectPath = school.onboarding_completed ? "/dashboard" : "/onboarding";
-        return NextResponse.redirect(getRedirectUrl(redirectPath));
-      }
-
       // No profile found - redirect to landing page to choose
       return NextResponse.redirect(getRedirectUrl("/"));
     }
   }
 
   // Return the user to an error page with instructions
-  return NextResponse.redirect(`${origin}/auth?error=Could not authenticate user`);
+  return NextResponse.redirect(`${origin}/auth?error=${encodeURIComponent("Could not authenticate user")}`);
+  } catch (err) {
+    console.error("Auth callback error:", err);
+    return NextResponse.redirect(`${origin}/auth?error=${encodeURIComponent("An unexpected error occurred during authentication")}`);
+  }
 }

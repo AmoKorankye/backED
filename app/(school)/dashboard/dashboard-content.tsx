@@ -88,24 +88,12 @@ export function DashboardContent({ user }: DashboardContentProps) {
       .order("created_at", { ascending: false });
 
     if (projectsData) {
-      // Fetch donation totals for each project
-      const projectsWithDonations = await Promise.all(
-        projectsData.map(async (project) => {
-          const { data: donations } = await supabase
-            .from("donation_history")
-            .select("amount")
-            .eq("project_id", project.id);
-
-          const total_raised = donations
-            ? donations.reduce((sum, d) => sum + Number(d.amount), 0)
-            : 0;
-
-          return {
-            ...project,
-            total_raised,
-          };
-        })
-      );
+      // Projects already have current_amount updated by DB trigger
+      // Just map total_raised from current_amount
+      const projectsWithDonations = projectsData.map((project) => ({
+        ...project,
+        total_raised: Number(project.current_amount) || 0,
+      }));
 
       setProjects(projectsWithDonations);
     }
@@ -122,22 +110,30 @@ export function DashboardContent({ user }: DashboardContentProps) {
       setNotifications(notificationsData);
     }
 
-    // Fetch donations
-    const { data: donationsData } = await supabase
-      .from("donation_history")
-      .select("*, projects(title)")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .limit(20);
+    // Fetch donations from alumni_donations for this school
+    if (school) {
+      const { data: donationsData } = await supabase
+        .from("alumni_donations")
+        .select("*, projects(title), alumni_users(full_name, email)")
+        .eq("school_id", school.id)
+        .in("status", ["completed", "completed_demo"])
+        .order("created_at", { ascending: false })
+        .limit(20);
 
-    if (donationsData) {
-      // Map the data to include project info
-      const mappedDonations = donationsData.map((d) => ({
-        ...d,
-        project: d.projects ? { title: d.projects.title } : null,
-        status: "completed" as const,
-      }));
-      setDonations(mappedDonations);
+      if (donationsData) {
+        // Map the data to match the DonationHistoryCard interface
+        const mappedDonations = donationsData.map((d) => ({
+          id: d.id,
+          amount: Number(d.amount),
+          donor_name: d.is_anonymous ? null : (d.alumni_users?.full_name || null),
+          donor_email: d.is_anonymous ? null : (d.alumni_users?.email || null),
+          message: d.message,
+          created_at: d.created_at || new Date().toISOString(),
+          project: d.projects ? { title: d.projects.title } : null,
+          status: "completed" as const,
+        }));
+        setDonations(mappedDonations);
+      }
     }
 
     setLoading(false);

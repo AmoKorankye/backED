@@ -45,6 +45,13 @@ export type Database = {
             foreignKeyName: "alumni_bookmarks_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_donation_summary"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "alumni_bookmarks_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -59,10 +66,15 @@ export type Database = {
           id: string
           is_anonymous: boolean | null
           message: string | null
+          payment_metadata: Json | null
           payment_provider: string | null
           payment_reference: string | null
+          platform_fee: number | null
           project_id: string
           receipt_number: string | null
+          school_id: string | null
+          school_subaccount_id: string | null
+          split_amount: number | null
           status: string | null
           transaction_id: string | null
           updated_at: string | null
@@ -75,10 +87,15 @@ export type Database = {
           id?: string
           is_anonymous?: boolean | null
           message?: string | null
+          payment_metadata?: Json | null
           payment_provider?: string | null
           payment_reference?: string | null
+          platform_fee?: number | null
           project_id: string
           receipt_number?: string | null
+          school_id?: string | null
+          school_subaccount_id?: string | null
+          split_amount?: number | null
           status?: string | null
           transaction_id?: string | null
           updated_at?: string | null
@@ -91,10 +108,15 @@ export type Database = {
           id?: string
           is_anonymous?: boolean | null
           message?: string | null
+          payment_metadata?: Json | null
           payment_provider?: string | null
           payment_reference?: string | null
+          platform_fee?: number | null
           project_id?: string
           receipt_number?: string | null
+          school_id?: string | null
+          school_subaccount_id?: string | null
+          split_amount?: number | null
           status?: string | null
           transaction_id?: string | null
           updated_at?: string | null
@@ -111,7 +133,28 @@ export type Database = {
             foreignKeyName: "alumni_donations_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_donation_summary"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "alumni_donations_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "alumni_donations_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "school_donation_summary"
+            referencedColumns: ["school_id"]
+          },
+          {
+            foreignKeyName: "alumni_donations_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
             referencedColumns: ["id"]
           },
         ]
@@ -501,6 +544,12 @@ export type Database = {
           logo_url: string | null
           onboarding_completed: boolean | null
           overview: string
+          payment_account_last4: string | null
+          payment_account_name: string | null
+          payment_bank_name: string | null
+          payment_provider: string | null
+          payment_split_percentage: number | null
+          payment_subaccount_id: string | null
           population: string
           school_image_url: string | null
           school_name: string
@@ -517,6 +566,12 @@ export type Database = {
           logo_url?: string | null
           onboarding_completed?: boolean | null
           overview: string
+          payment_account_last4?: string | null
+          payment_account_name?: string | null
+          payment_bank_name?: string | null
+          payment_provider?: string | null
+          payment_split_percentage?: number | null
+          payment_subaccount_id?: string | null
           population: string
           school_image_url?: string | null
           school_name: string
@@ -533,6 +588,12 @@ export type Database = {
           logo_url?: string | null
           onboarding_completed?: boolean | null
           overview?: string
+          payment_account_last4?: string | null
+          payment_account_name?: string | null
+          payment_bank_name?: string | null
+          payment_provider?: string | null
+          payment_split_percentage?: number | null
+          payment_subaccount_id?: string | null
           population?: string
           school_image_url?: string | null
           school_name?: string
@@ -542,12 +603,117 @@ export type Database = {
         }
         Relationships: []
       }
+      donation_audit_log: {
+        Row: {
+          action: string
+          created_at: string | null
+          created_by: string | null
+          donation_id: string | null
+          id: string
+          metadata: Json | null
+          new_amount: number | null
+          new_status: string | null
+          old_amount: number | null
+          old_status: string | null
+          project_id: string | null
+          school_id: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string | null
+          created_by?: string | null
+          donation_id?: string | null
+          id?: string
+          metadata?: Json | null
+          new_amount?: number | null
+          new_status?: string | null
+          old_amount?: number | null
+          old_status?: string | null
+          project_id?: string | null
+          school_id?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string | null
+          created_by?: string | null
+          donation_id?: string | null
+          id?: string
+          metadata?: Json | null
+          new_amount?: number | null
+          new_status?: string | null
+          old_amount?: number | null
+          old_status?: string | null
+          project_id?: string | null
+          school_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "donation_audit_log_donation_id_fkey"
+            columns: ["donation_id"]
+            isOneToOne: false
+            referencedRelation: "alumni_donations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
-      [_ in never]: never
+      project_donation_summary: {
+        Row: {
+          donation_count: number | null
+          funding_percentage: number | null
+          project_id: string | null
+          project_title: string | null
+          school_id: string | null
+          school_name: string | null
+          target_amount: number | null
+          total_raised: number | null
+          unique_backers: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "projects_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "school_donation_summary"
+            referencedColumns: ["school_id"]
+          },
+          {
+            foreignKeyName: "projects_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      school_donation_summary: {
+        Row: {
+          amount_last_30_days: number | null
+          payment_subaccount_id: string | null
+          school_id: string | null
+          school_name: string | null
+          total_amount: number | null
+          total_donations: number | null
+          unique_donors: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
-      [_ in never]: never
+      is_donation_for_valid_school: {
+        Args: { donation_school_id: string }
+        Returns: boolean
+      }
+      is_own_alumni_user: {
+        Args: { p_alumni_user_id: string }
+        Returns: boolean
+      }
+      user_owns_project_school: {
+        Args: { p_project_id: string }
+        Returns: boolean
+      }
+      user_owns_school: { Args: { p_school_id: string }; Returns: boolean }
     }
     Enums: {
       [_ in never]: never
@@ -690,3 +856,6 @@ export type AlumniNotification = Tables<"alumni_notifications">
 export type SchoolRequest = Tables<"school_requests">
 export type Project = Tables<"projects">
 export type School = Tables<"schools">
+export type DonationAuditLog = Tables<"donation_audit_log">
+export type SchoolDonationSummary = Tables<"school_donation_summary">
+export type ProjectDonationSummary = Tables<"project_donation_summary">

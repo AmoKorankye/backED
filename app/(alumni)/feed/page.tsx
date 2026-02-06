@@ -31,6 +31,7 @@ import {
   Settings,
   HelpCircle,
   Info,
+  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { AlumniUser, Project, School as SchoolType } from "@/lib/supabase/database.types";
@@ -42,12 +43,16 @@ interface ProjectWithSchool extends Project {
     location: string;
   } | null;
   isBookmarked?: boolean;
+  relevanceScore?: number;
 }
 
 function FeedPageContent() {
-  const [activeTab, setActiveTab] = useState("my-school");
+  const [activeTab, setActiveTab] = useState("for-you");
   const [projects, setProjects] = useState<ProjectWithSchool[]>([]);
   const [mySchoolProjects, setMySchoolProjects] = useState<ProjectWithSchool[]>([]);
+  const [forYouProjects, setForYouProjects] = useState<ProjectWithSchool[]>([]);
+  const [forYouLoading, setForYouLoading] = useState(false);
+  const [forYouInterests, setForYouInterests] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<AlumniUser | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -78,61 +83,95 @@ function FeedPageContent() {
   // Fetch user data and projects
   useEffect(() => {
     const fetchData = async () => {
-      setLoading(true);
+      try {
+        setLoading(true);
 
-      // Get current user
-      const {
-        data: { user: authUser },
-      } = await supabase.auth.getUser();
+        // Get current user
+        const {
+          data: { user: authUser },
+        } = await supabase.auth.getUser();
 
-      if (!authUser) {
-        // Allow browsing without auth
+        if (!authUser) {
+          // Allow browsing without auth
+          await fetchAllProjects();
+          setLoading(false);
+          return;
+        }
+
+        // Get alumni user profile
+        const { data: alumniUser } = await supabase
+          .from("alumni_users")
+          .select("*")
+          .eq("user_id", authUser.id)
+          .single();
+
+        if (alumniUser) {
+          setUser(alumniUser);
+
+          // Get bookmarked project IDs
+          const { data: bookmarks } = await supabase
+            .from("alumni_bookmarks")
+            .select("project_id")
+            .eq("alumni_user_id", alumniUser.id);
+
+          if (bookmarks) {
+            setBookmarkedIds(new Set(bookmarks.map((b) => b.project_id)));
+          }
+
+          // Get unread notification count
+          const { count } = await supabase
+            .from("alumni_notifications")
+            .select("*", { count: "exact", head: true })
+            .eq("alumni_user_id", alumniUser.id)
+            .eq("is_read", false);
+
+          setUnreadCount(count || 0);
+
+          // Fetch my school projects
+          if (alumniUser.school_id) {
+            await fetchMySchoolProjects(alumniUser.school_id);
+          }
+
+          // Fetch personalized feed
+          fetchForYouProjects();
+        }
+
         await fetchAllProjects();
+      } catch (err) {
+        console.error("Unexpected error loading feed:", err);
+        toast.error("Something went wrong loading the feed. Pull down to refresh.");
+      } finally {
         setLoading(false);
-        return;
       }
-
-      // Get alumni user profile
-      const { data: alumniUser } = await supabase
-        .from("alumni_users")
-        .select("*")
-        .eq("user_id", authUser.id)
-        .single();
-
-      if (alumniUser) {
-        setUser(alumniUser);
-
-        // Get bookmarked project IDs
-        const { data: bookmarks } = await supabase
-          .from("alumni_bookmarks")
-          .select("project_id")
-          .eq("alumni_user_id", alumniUser.id);
-
-        if (bookmarks) {
-          setBookmarkedIds(new Set(bookmarks.map((b) => b.project_id)));
-        }
-
-        // Get unread notification count
-        const { count } = await supabase
-          .from("alumni_notifications")
-          .select("*", { count: "exact", head: true })
-          .eq("alumni_user_id", alumniUser.id)
-          .eq("is_read", false);
-
-        setUnreadCount(count || 0);
-
-        // Fetch my school projects
-        if (alumniUser.school_id) {
-          await fetchMySchoolProjects(alumniUser.school_id);
-        }
-      }
-
-      await fetchAllProjects();
-      setLoading(false);
     };
 
     fetchData();
   }, [supabase]);
+
+  // Realtime subscription for notification badge updates
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel(`alumni-notifications-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'alumni_notifications',
+          filter: `alumni_user_id=eq.${user.id}`,
+        },
+        () => {
+          setUnreadCount((prev) => prev + 1);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [supabase, user]);
 
   const fetchAllProjects = async () => {
     const { data, error } = await supabase
@@ -153,6 +192,7 @@ function FeedPageContent() {
 
     if (error) {
       console.error("Error fetching projects:", error);
+      toast.error("Failed to load projects. Please try again.");
       return;
     }
 
@@ -179,10 +219,40 @@ function FeedPageContent() {
 
     if (error) {
       console.error("Error fetching my school projects:", error);
+      toast.error("Failed to load your school's projects.");
       return;
     }
 
     setMySchoolProjects(data || []);
+  };
+
+  const fetchForYouProjects = async () => {
+    try {
+      setForYouLoading(true);
+      const response = await fetch("/api/feed/personalized");
+      
+      if (!response.ok) {
+        throw new Error("Failed to fetch personalized feed");
+      }
+      
+      const data = await response.json();
+      
+      // Handle both personalized and fallback responses
+      setForYouProjects(data.projects || []);
+      setForYouInterests(data.matchedInterests || []);
+      
+      // Show toast if using fallback
+      if (data.message) {
+        toast.info(data.message, { duration: 3000 });
+      }
+    } catch (err) {
+      console.error("Error fetching personalized feed:", err);
+      toast.error("Could not load personalized recommendations. Showing all projects.");
+      // Fall back to all projects if personalization fails
+      setForYouProjects(projects);
+    } finally {
+      setForYouLoading(false);
+    }
   };
 
   const handleBookmark = async (projectId: string) => {
@@ -423,6 +493,13 @@ function FeedPageContent() {
         <div className="sticky top-[57px] z-40 bg-background border-b border-border">
           <TabsList className="w-full h-12 rounded-none bg-transparent p-0">
             <TabsTrigger
+              value="for-you"
+              className="flex-1 h-full rounded-none data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none"
+            >
+              <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+              For You
+            </TabsTrigger>
+            <TabsTrigger
               value="my-school"
               className="flex-1 h-full rounded-none data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none"
             >
@@ -436,6 +513,60 @@ function FeedPageContent() {
             </TabsTrigger>
           </TabsList>
         </div>
+
+        {/* Personalized "For You" Feed */}
+        <TabsContent value="for-you" className="flex-1 mt-0 p-4">
+          <ScrollArea className="h-[calc(100vh-180px)]">
+            {loading || forYouLoading ? (
+              <ProjectCardsSkeleton />
+            ) : !user ? (
+              <EmptyState
+                title="Sign in to see personalized projects"
+                description="We'll recommend projects based on your interests."
+                action={
+                  <Link href="/login">
+                    <Button>Login</Button>
+                  </Link>
+                }
+              />
+            ) : forYouProjects.length === 0 ? (
+              <EmptyState
+                title="No recommendations yet"
+                description="Update your interests in your profile to get personalized project recommendations."
+                action={
+                  <Link href="/profile">
+                    <Button>Update Interests</Button>
+                  </Link>
+                }
+              />
+            ) : (
+              <div className="space-y-4 pb-4">
+                {/* Interest badges */}
+                {forYouInterests.length > 0 && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-muted-foreground">Based on:</span>
+                    {forYouInterests.map((interest) => (
+                      <Badge key={interest} variant="secondary" className="text-xs">
+                        {interest}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                {forYouProjects.map((project) => (
+                  <ProjectCard
+                    key={project.id}
+                    project={project}
+                    isBookmarked={bookmarkedIds.has(project.id)}
+                    onBookmark={() => handleBookmark(project.id)}
+                    formatCurrency={formatCurrency}
+                    getProgress={getProgress}
+                    showRelevance
+                  />
+                ))}
+              </div>
+            )}
+          </ScrollArea>
+        </TabsContent>
 
         {/* My School Feed */}
         <TabsContent value="my-school" className="flex-1 mt-0 p-4">
@@ -512,18 +643,34 @@ function ProjectCard({
   onBookmark,
   formatCurrency,
   getProgress,
+  showRelevance,
 }: {
   project: ProjectWithSchool;
   isBookmarked: boolean;
   onBookmark: () => void;
   formatCurrency: (amount: number | null) => string;
   getProgress: (current: number | null, target: number | null) => number;
+  showRelevance?: boolean;
 }) {
   const progress = getProgress(project.current_amount, project.target_amount);
 
   return (
     <Link href={`/project/${project.id}`}>
       <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+        {/* Relevance indicator */}
+        {showRelevance && project.relevanceScore && project.relevanceScore >= 70 && (
+          <div className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 px-3 py-1.5 flex items-center gap-1.5 border-b border-purple-200/30">
+            <Sparkles className="h-3.5 w-3.5 text-purple-600" />
+            <span className="text-xs font-medium text-purple-700">
+              {project.relevanceScore >= 90
+                ? "Great match for you"
+                : project.relevanceScore >= 75
+                ? "Good match for you"
+                : "Matches your interests"}
+            </span>
+          </div>
+        )}
+
         {/* Project Image */}
         <div className="relative aspect-video bg-muted">
           {project.image_url ? (

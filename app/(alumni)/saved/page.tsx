@@ -40,56 +40,56 @@ export default function SavedProjectsPage() {
 
   useEffect(() => {
     const fetchSavedProjects = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
 
-      if (!user) {
-        router.push("/login");
-        return;
-      }
+        if (!user) {
+          router.push("/login");
+          return;
+        }
 
-      // Get alumni user
-      const { data: alumniUser } = await supabase
-        .from("alumni_users")
-        .select("id")
-        .eq("user_id", user.id)
-        .single();
+        // Get alumni user
+        const { data: alumniUser } = await supabase
+          .from("alumni_users")
+          .select("id")
+          .eq("user_id", user.id)
+          .single();
 
-      if (!alumniUser) {
-        // User is authenticated but has no alumni profile - complete signup
-        router.push("/signup");
-        return;
-      }
+        if (!alumniUser) {
+          // User is authenticated but has no alumni profile - complete signup
+          router.push("/signup");
+          return;
+        }
 
-      setAlumniUserId(alumniUser.id);
+        setAlumniUserId(alumniUser.id);
 
-      // Fetch bookmarked projects with project and school details
-      const { data: bookmarks, error } = await supabase
-        .from("alumni_bookmarks")
-        .select(
-          `
-          id,
-          created_at,
-          projects (
-            *,
-            schools (
-              school_name,
-              logo_url,
-              location
+        // Fetch bookmarked projects with project and school details
+        const { data: bookmarks, error } = await supabase
+          .from("alumni_bookmarks")
+          .select(
+            `
+            id,
+            created_at,
+            projects (
+              *,
+              schools (
+                school_name,
+                logo_url,
+                location
+              )
             )
+          `
           )
-        `
-        )
-        .eq("alumni_user_id", alumniUser.id)
-        .order("created_at", { ascending: false });
+          .eq("alumni_user_id", alumniUser.id)
+          .order("created_at", { ascending: false });
 
-      if (error) {
-        console.error("Error fetching saved projects:", error);
-        toast.error("Failed to load saved projects");
-        setLoading(false);
-        return;
-      }
+        if (error) {
+          console.error("Error fetching saved projects:", error);
+          toast.error("Failed to load saved projects");
+          return;
+        }
 
       // Transform data
       const transformedProjects: BookmarkedProject[] = (bookmarks || [])
@@ -101,7 +101,12 @@ export default function SavedProjectsPage() {
         }));
 
       setProjects(transformedProjects);
-      setLoading(false);
+      } catch (err) {
+        console.error("Unexpected error loading saved projects:", err);
+        toast.error("Something went wrong. Please try again.");
+      } finally {
+        setLoading(false);
+      }
     };
 
     fetchSavedProjects();

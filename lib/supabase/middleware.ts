@@ -62,6 +62,7 @@ export async function updateSession(request: NextRequest) {
   if (!user && isSchoolProtectedRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth";
+    url.searchParams.set("mode", "signup");
     return NextResponse.redirect(url);
   }
 

@@ -117,7 +117,7 @@ export default function ProfilePage() {
           .from("alumni_donations")
           .select("amount, project_id")
           .eq("alumni_user_id", alumniUser.id)
-          .eq("payment_status", "completed"),
+          .in("status", ["completed", "completed_demo"]),
         supabase
           .from("alumni_followed_schools")
           .select("id", { count: "exact", head: true })

@@ -14,18 +14,42 @@ export default async function DonationsPage() {
   }
 
   // Fetch school data
-  const { data: school } = await supabase
+  const { data: school, error: schoolError } = await supabase
     .from("schools")
-    .select("admin_name, school_name")
+    .select("id, admin_name, school_name")
     .eq("user_id", user.id)
     .single();
 
-  // Fetch donation history with project names
-  const { data: donations } = await supabase
-    .from("donation_history")
-    .select("*, projects(title)")
-    .eq("user_id", user.id)
+  if (schoolError || !school) {
+    console.error("School fetch error:", schoolError);
+    return (
+      <DonationsContent
+        user={user}
+        school={null}
+        donations={[]}
+      />
+    );
+  }
+
+  // Fetch donations received by this school from alumni_donations
+  const { data: donations, error: donationsError } = await supabase
+    .from("alumni_donations")
+    .select(`
+      id,
+      amount,
+      message,
+      created_at,
+      is_anonymous,
+      alumni_users(full_name, email),
+      projects(title)
+    `)
+    .eq("school_id", school.id)
+    .in("status", ["completed", "completed_demo"])
     .order("created_at", { ascending: false });
+
+  if (donationsError) {
+    console.error("Donations fetch error:", donationsError);
+  }
 
   return (
     <DonationsContent

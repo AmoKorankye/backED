@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import type { AlumniUser, Project, School } from "@/lib/supabase/database.types";
+import AIProjectSummary from "@/components/ai-project-summary";
 
 interface ProjectWithSchool extends Project {
   schools: School | null;
@@ -67,69 +68,74 @@ export default function ProjectDetailPage({
 
   useEffect(() => {
     const fetchProject = async () => {
-      setLoading(true);
+      try {
+        setLoading(true);
 
-      // Get current user
-      const {
-        data: { user: authUser },
-      } = await supabase.auth.getUser();
+        // Get current user
+        const {
+          data: { user: authUser },
+        } = await supabase.auth.getUser();
 
-      if (authUser) {
-        const { data: alumniUser } = await supabase
-          .from("alumni_users")
-          .select("*")
-          .eq("user_id", authUser.id)
-          .single();
-
-        if (alumniUser) {
-          setUser(alumniUser);
-
-          // Check if project is bookmarked
-          const { data: bookmark } = await supabase
-            .from("alumni_bookmarks")
-            .select("id")
-            .eq("alumni_user_id", alumniUser.id)
-            .eq("project_id", resolvedParams.id)
+        if (authUser) {
+          const { data: alumniUser } = await supabase
+            .from("alumni_users")
+            .select("*")
+            .eq("user_id", authUser.id)
             .single();
 
-          setIsBookmarked(!!bookmark);
+          if (alumniUser) {
+            setUser(alumniUser);
+
+            // Check if project is bookmarked
+            const { data: bookmark } = await supabase
+              .from("alumni_bookmarks")
+              .select("id")
+              .eq("alumni_user_id", alumniUser.id)
+              .eq("project_id", resolvedParams.id)
+              .single();
+
+            setIsBookmarked(!!bookmark);
+          }
         }
-      }
 
-      // Fetch project details
-      const { data: projectData, error } = await supabase
-        .from("projects")
-        .select(
+        // Fetch project details
+        const { data: projectData, error } = await supabase
+          .from("projects")
+          .select(
+            `
+            *,
+            schools (*)
           `
-          *,
-          schools (*)
-        `
-        )
-        .eq("id", resolvedParams.id)
-        .single();
-
-      if (error) {
-        console.error("Error fetching project:", error);
-        toast.error("Project not found");
-        router.push("/feed");
-        return;
-      }
-
-      setProject(projectData);
-
-      // Check if following school
-      if (projectData.schools && user) {
-        const { data: follow } = await supabase
-          .from("alumni_followed_schools")
-          .select("id")
-          .eq("alumni_user_id", user.id)
-          .eq("school_id", projectData.schools.id)
+          )
+          .eq("id", resolvedParams.id)
           .single();
 
-        setIsFollowingSchool(!!follow);
-      }
+        if (error) {
+          console.error("Error fetching project:", error);
+          toast.error("Project not found or could not be loaded");
+          router.push("/feed");
+          return;
+        }
 
-      setLoading(false);
+        setProject(projectData);
+
+        // Check if following school
+        if (projectData.schools && user) {
+          const { data: follow } = await supabase
+            .from("alumni_followed_schools")
+            .select("id")
+            .eq("alumni_user_id", user.id)
+            .eq("school_id", projectData.schools.id)
+            .single();
+
+          setIsFollowingSchool(!!follow);
+        }
+      } catch (err) {
+        console.error("Unexpected error loading project:", err);
+        toast.error("Something went wrong loading this project. Please try again.");
+      } finally {
+        setLoading(false);
+      }
     };
 
     fetchProject();
@@ -181,7 +187,9 @@ export default function ProjectDetailPage({
         .eq("alumni_user_id", currentUser!.id)
         .eq("project_id", resolvedParams.id);
 
-      if (!error) {
+      if (error) {
+        toast.error("Failed to remove bookmark. Please try again.");
+      } else {
         setIsBookmarked(false);
         toast.success("Removed from saved");
       }
@@ -191,7 +199,9 @@ export default function ProjectDetailPage({
         project_id: resolvedParams.id,
       });
 
-      if (!error) {
+      if (error) {
+        toast.error("Failed to save project. Please try again.");
+      } else {
         setIsBookmarked(true);
         toast.success("Project saved!");
       }
@@ -248,7 +258,9 @@ export default function ProjectDetailPage({
         .eq("alumni_user_id", currentUser!.id)
         .eq("school_id", project.schools.id);
 
-      if (!error) {
+      if (error) {
+        toast.error("Failed to unfollow school. Please try again.");
+      } else {
         setIsFollowingSchool(false);
         toast.success("Unfollowed school");
       }
@@ -258,7 +270,9 @@ export default function ProjectDetailPage({
         school_id: project.schools.id,
       });
 
-      if (!error) {
+      if (error) {
+        toast.error("Failed to follow school. Please try again.");
+      } else {
         setIsFollowingSchool(true);
         toast.success("Now following this school!");
       }
@@ -344,72 +358,99 @@ export default function ProjectDetailPage({
     return !isNaN(parsed) && parsed > 0 ? parsed : null;
   };
 
+  const getRemainingAmount = () => {
+    if (!project?.target_amount) return null;
+    const remaining = project.target_amount - (project.current_amount || 0);
+    return Math.max(remaining, 0);
+  };
+
   const handleProceedToInvoice = () => {
     const amount = getParsedAmount();
-    if (amount && amount > 0) {
-      setDonationStep("invoice");
+    const remaining = getRemainingAmount();
+    
+    if (!amount || amount <= 0) return;
+    
+    if (remaining !== null && amount > remaining) {
+      toast.error(`Donation amount exceeds remaining target. Maximum: ${formatCurrency(remaining)}`);
+      return;
     }
+    
+    setDonationStep("invoice");
   };
 
   const handleConfirmDonation = async () => {
     const amount = getParsedAmount();
     if (!user || !project || !amount) return;
 
-    setDonationStep("processing");
-    setIsProcessing(true);
-
-    // Simulate Paystack payment processing (demo mode - all donations succeed)
-    await new Promise((resolve) => setTimeout(resolve, 2500));
-
-    // Generate a demo transaction reference
-    const transactionRef = `BACKED_DEMO_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const receiptNumber = `RCP-${Date.now().toString().slice(-8)}`;
-
-    // Create donation record with demo status
-    const { data: donation, error } = await supabase
-      .from("alumni_donations")
-      .insert({
-        alumni_user_id: user.id,
-        project_id: project.id,
-        amount: amount,
-        is_anonymous: isAnonymous,
-        status: "completed_demo",
-        payment_provider: "paystack",
-        payment_reference: transactionRef,
-        receipt_number: receiptNumber,
-      })
-      .select()
-      .single();
-
-    if (error) {
-      toast.error("Donation failed. Please try again.");
-      setIsProcessing(false);
+    // Double-check amount doesn't exceed remaining target
+    const remaining = getRemainingAmount();
+    if (remaining !== null && amount > remaining) {
+      toast.error(`Donation amount exceeds remaining target. Maximum: ${formatCurrency(remaining)}`);
       setDonationStep("amount");
       return;
     }
 
-    setDonationId(donation.id);
-    setIsProcessing(false);
-    setDonationStep("success");
+    setDonationStep("processing");
+    setIsProcessing(true);
 
-    // Update project current amount and backers count
-    const newAmount = (project.current_amount || 0) + amount;
-    const newBackersCount = (project.backers_count || 0) + 1;
-    
-    await supabase
-      .from("projects")
-      .update({
-        current_amount: newAmount,
-        backers_count: newBackersCount,
-      })
-      .eq("id", project.id);
+    try {
+      // Simulate Paystack payment processing (demo mode - all donations succeed)
+      await new Promise((resolve) => setTimeout(resolve, 2500));
 
-    // Update local project state to reflect the new amount
-    setProject({
-      ...project,
-      current_amount: newAmount,
-      backers_count: newBackersCount,
-    });
+      // Generate a demo transaction reference
+      const transactionRef = `BACKED_DEMO_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const receiptNumber = `RCP-${Date.now().toString().slice(-8)}`;
+
+      // Create donation record with demo status
+      const { data: donation, error } = await supabase
+        .from("alumni_donations")
+        .insert({
+          alumni_user_id: user.id,
+          project_id: project.id,
+          amount: amount,
+          is_anonymous: isAnonymous,
+          status: "completed_demo",
+          payment_provider: "paystack",
+          payment_reference: transactionRef,
+          receipt_number: receiptNumber,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Donation insert error:", error);
+        toast.error("Your donation could not be recorded. Please try again.", {
+          description: "No payment has been charged.",
+        });
+        setIsProcessing(false);
+        setDonationStep("amount");
+        return;
+      }
+
+      setDonationId(donation.id);
+      setIsProcessing(false);
+      setDonationStep("success");
+
+      // The DB trigger `update_project_funding_stats` automatically updates
+      // current_amount, backers_count, and status on the projects table.
+      // We just need to refresh the local state to reflect the new values.
+      const { data: updatedProject } = await supabase
+        .from("projects")
+        .select("*, schools (*)")
+        .eq("id", project.id)
+        .single();
+
+      if (updatedProject) {
+        setProject(updatedProject);
+      }
+    } catch (err) {
+      console.error("Unexpected donation error:", err);
+      toast.error("Something went wrong processing your donation.", {
+        description: "Please check your donation history or try again.",
+      });
+      setIsProcessing(false);
+      setDonationStep("amount");
+    }
   };
 
   const formatCurrency = (amount: number | null) => {
@@ -600,6 +641,11 @@ export default function ProjectDetailPage({
           </div>
         )}
 
+        {/* AI Summary */}
+        <div className="mb-6">
+          <AIProjectSummary projectId={resolvedParams.id} />
+        </div>
+
         {/* Description */}
         <div className="mb-6">
           <h2 className="font-semibold mb-2">About this project</h2>
@@ -664,13 +710,18 @@ export default function ProjectDetailPage({
           <Button
             className="w-full h-12 text-lg"
             onClick={handleDonate}
-            disabled={project.status !== "active"}
+            disabled={
+              project.status !== "active" ||
+              (getRemainingAmount() !== null && getRemainingAmount()! <= 0)
+            }
           >
-            {project.status === "active"
-              ? "Back This Project"
-              : project.status === "funded"
+            {project.status !== "active"
+              ? project.status === "funded"
+                ? "Fully Funded!"
+                : "Project Closed"
+              : getRemainingAmount() !== null && getRemainingAmount()! <= 0
               ? "Fully Funded!"
-              : "Project Closed"}
+              : "Back This Project"}
           </Button>
         </div>
       </div>
@@ -705,6 +756,16 @@ export default function ProjectDetailPage({
                       autoFocus
                     />
                   </div>
+                  {getRemainingAmount() !== null && getRemainingAmount()! > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Remaining to reach goal: {formatCurrency(getRemainingAmount())}
+                    </p>
+                  )}
+                  {getRemainingAmount() === 0 && (
+                    <p className="text-xs text-green-600 dark:text-green-500">
+                      ✓ Project is fully funded!
+                    </p>
+                  )}
                 </div>
 
                 {/* Anonymous Donation Option */}

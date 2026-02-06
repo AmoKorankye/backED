@@ -48,56 +48,61 @@ export default function DonationsPage() {
 
   useEffect(() => {
     const fetchDonations = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
 
-      if (!user) {
-        router.push("/login");
-        return;
-      }
+        if (!user) {
+          router.push("/login");
+          return;
+        }
 
-      // Get alumni user
-      const { data: alumniUser } = await supabase
-        .from("alumni_users")
-        .select("id")
-        .eq("user_id", user.id)
-        .single();
+        // Get alumni user
+        const { data: alumniUser } = await supabase
+          .from("alumni_users")
+          .select("id")
+          .eq("user_id", user.id)
+          .single();
 
-      if (!alumniUser) {
-        // User is authenticated but has no alumni profile - complete signup
-        router.push("/signup");
-        return;
-      }
+        if (!alumniUser) {
+          // User is authenticated but has no alumni profile - complete signup
+          router.push("/signup");
+          return;
+        }
 
-      // Fetch donations with project and school details
-      const { data, error } = await supabase
-        .from("alumni_donations")
-        .select(
-          `
-          *,
-          projects (
-            title,
-            image_url,
-            schools (
-              school_name,
-              logo_url
+        // Fetch donations with project and school details
+        const { data, error } = await supabase
+          .from("alumni_donations")
+          .select(
+            `
+            *,
+            projects (
+              title,
+              image_url,
+              schools (
+                school_name,
+                logo_url
+              )
             )
+          `
           )
-        `
-        )
-        .eq("alumni_user_id", alumniUser.id)
-        .order("created_at", { ascending: false });
+          .eq("alumni_user_id", alumniUser.id)
+          .order("created_at", { ascending: false });
 
-      if (error) {
-        console.error("Error fetching donations:", error);
-        toast.error("Failed to load donations");
+        if (error) {
+          console.error("Error fetching donations:", error);
+          toast.error("Failed to load donations");
+          return;
+        }
+
+        setDonations(data || []);
+      } catch (err) {
+        console.error("Unexpected error loading donations:", err);
+        toast.error("Something went wrong. Please try again.");
+      } finally {
         setLoading(false);
-        return;
       }
-
-      setDonations(data || []);
-      setLoading(false);
     };
 
     fetchDonations();
@@ -152,7 +157,7 @@ export default function DonationsPage() {
   };
 
   const totalDonated = donations
-    .filter((d) => d.status === "completed")
+    .filter((d) => d.status?.startsWith("completed"))
     .reduce((sum, d) => sum + (d.amount || 0), 0);
 
   return (
@@ -205,27 +210,25 @@ export default function DonationsPage() {
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="font-medium truncate">
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium truncate text-sm">
                           {donation.projects?.title || "Unknown Project"}
                         </p>
-                        <p className="text-sm text-muted-foreground truncate">
+                        <p className="text-xs text-muted-foreground truncate">
                           {donation.projects?.schools?.school_name}
                         </p>
                       </div>
-                      <div className="text-right flex-shrink-0">
-                        <p className="font-semibold">
+                      <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                        <p className="font-semibold text-sm whitespace-nowrap">
                           {formatCurrency(donation.amount)}
                         </p>
+                        {getStatusBadge(donation.status || "pending")}
                       </div>
                     </div>
-                    <div className="flex items-center justify-between mt-2">
-                      <p className="text-xs text-muted-foreground">
-                        {donation.created_at ? formatDate(donation.created_at) : ""}
-                      </p>
-                      {getStatusBadge(donation.status || "pending")}
-                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {donation.created_at ? formatDate(donation.created_at) : ""}
+                    </p>
                   </div>
                 </div>
               </button>

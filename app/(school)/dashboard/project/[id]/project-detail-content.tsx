@@ -28,8 +28,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { User } from "@supabase/supabase-js";
-import { ArrowLeft, Calendar, Trash2, Loader2, Edit, Target, Wallet, Megaphone, Send } from "lucide-react";
+import { ArrowLeft, Calendar, Trash2, Loader2, Edit, Target, Wallet, Megaphone, Send, Heart, DollarSign } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 interface Project {
@@ -56,6 +64,16 @@ interface ProjectUpdate {
   created_at: string;
 }
 
+interface ProjectDonation {
+  id: string;
+  amount: number;
+  message: string | null;
+  is_anonymous: boolean | null;
+  created_at: string | null;
+  status: string | null;
+  alumni_users: { full_name: string; email: string }[] | { full_name: string; email: string } | null;
+}
+
 interface ProjectDetailContentProps {
   user: User;
   project: Project;
@@ -72,6 +90,7 @@ export function ProjectDetailContent({ user, project: initialProject }: ProjectD
   const [saving, setSaving] = useState(false);
   const [sendingUpdate, setSendingUpdate] = useState(false);
   const [totalDonations, setTotalDonations] = useState(0);
+  const [projectDonations, setProjectDonations] = useState<ProjectDonation[]>([]);
   const [projectUpdates, setProjectUpdates] = useState<ProjectUpdate[]>([]);
   const [schoolId, setSchoolId] = useState<string | null>(null);
 
@@ -115,6 +134,16 @@ export function ProjectDetailContent({ user, project: initialProject }: ProjectD
       const alumniTotal = alumniDonations?.reduce((sum, d) => sum + Number(d.amount), 0) || 0;
       const historyTotal = historyDonations?.reduce((sum, d) => sum + Number(d.amount), 0) || 0;
       setTotalDonations(alumniTotal + historyTotal);
+
+      // Fetch detailed donation list for the table
+      const { data: donationsList } = await supabase
+        .from("alumni_donations")
+        .select("id, amount, message, is_anonymous, created_at, status, alumni_users(full_name, email)")
+        .eq("project_id", project.id)
+        .in("status", ["completed", "completed_demo"])
+        .order("created_at", { ascending: false });
+
+      setProjectDonations(donationsList || []);
     };
 
     fetchDonations();
@@ -569,6 +598,93 @@ export function ProjectDetailContent({ user, project: initialProject }: ProjectD
                 </CardContent>
               </Card>
             )}
+
+            {/* Project Donations Table */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Heart className="h-5 w-5" />
+                    Donations to This Project
+                  </CardTitle>
+                  {projectDonations.length > 0 && (
+                    <Badge variant="secondary">
+                      {projectDonations.length} donation{projectDonations.length !== 1 ? "s" : ""}
+                    </Badge>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent>
+                {projectDonations.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-8 text-center">
+                    <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
+                      <DollarSign className="h-5 w-5 text-muted-foreground" />
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      No donations yet for this project.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="max-h-[400px] overflow-y-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Donor</TableHead>
+                          <TableHead>Amount</TableHead>
+                          <TableHead className="hidden sm:table-cell">Message</TableHead>
+                          <TableHead className="text-right">Date</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {projectDonations.map((donation) => (
+                          <TableRow key={donation.id}>
+                            <TableCell>
+                              <div>
+                                <p className="font-medium text-sm">
+                                  {donation.is_anonymous
+                                    ? "Anonymous"
+                                    : (Array.isArray(donation.alumni_users) ? donation.alumni_users[0]?.full_name : donation.alumni_users?.full_name) || "Unknown"}
+                                </p>
+                                {!donation.is_anonymous && (Array.isArray(donation.alumni_users) ? donation.alumni_users[0]?.email : donation.alumni_users?.email) && (
+                                  <p className="text-xs text-muted-foreground truncate max-w-[150px]">
+                                    {Array.isArray(donation.alumni_users) ? donation.alumni_users[0]?.email : donation.alumni_users?.email}
+                                  </p>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <span className="font-semibold text-emerald-600">
+                                {formatCurrency(Number(donation.amount))}
+                              </span>
+                            </TableCell>
+                            <TableCell className="hidden sm:table-cell">
+                              {donation.message ? (
+                                <p className="text-sm text-muted-foreground line-clamp-2 max-w-[200px]">
+                                  &quot;{donation.message}&quot;
+                                </p>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right whitespace-nowrap">
+                              <p className="text-xs text-muted-foreground">
+                                {donation.created_at
+                                  ? new Date(donation.created_at).toLocaleDateString("en-US", {
+                                      month: "short",
+                                      day: "numeric",
+                                      year: "numeric",
+                                    })
+                                  : "—"}
+                              </p>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
         </div>
       </main>

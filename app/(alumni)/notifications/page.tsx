@@ -31,44 +31,50 @@ export default function NotificationsPage() {
 
   useEffect(() => {
     const fetchNotifications = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
 
-      if (!user) {
-        router.push("/login");
-        return;
+        if (!user) {
+          router.push("/login");
+          return;
+        }
+
+        // Get alumni user
+        const { data: alumniUser } = await supabase
+          .from("alumni_users")
+          .select("id")
+          .eq("user_id", user.id)
+          .single();
+
+        if (!alumniUser) {
+          // User is authenticated but no alumni profile - they need to complete signup
+          router.push("/signup");
+          return;
+        }
+
+        // Fetch notifications
+        const { data, error } = await supabase
+          .from("alumni_notifications")
+          .select("*")
+          .eq("alumni_user_id", alumniUser.id)
+          .order("created_at", { ascending: false })
+          .limit(50);
+
+        if (error) {
+          console.error("Error fetching notifications:", error);
+          toast.error("Failed to load notifications");
+          return;
+        }
+
+        setNotifications(data || []);
+      } catch (err) {
+        console.error("Unexpected error loading notifications:", err);
+        toast.error("Something went wrong. Please try again.");
+      } finally {
+        setLoading(false);
       }
-
-      // Get alumni user
-      const { data: alumniUser } = await supabase
-        .from("alumni_users")
-        .select("id")
-        .eq("user_id", user.id)
-        .single();
-
-      if (!alumniUser) {
-        // User is authenticated but no alumni profile - they need to complete signup
-        router.push("/signup");
-        return;
-      }
-
-      // Fetch notifications
-      const { data, error } = await supabase
-        .from("alumni_notifications")
-        .select("*")
-        .eq("alumni_user_id", alumniUser.id)
-        .order("created_at", { ascending: false })
-        .limit(50);
-
-      if (error) {
-        console.error("Error fetching notifications:", error);
-        toast.error("Failed to load notifications");
-        return;
-      }
-
-      setNotifications(data || []);
-      setLoading(false);
     };
 
     fetchNotifications();

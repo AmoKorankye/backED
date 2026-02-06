@@ -202,7 +202,7 @@ export function CreateProjectDialog({
       }
 
       // Create new challenge if needed
-      let challengeId = selectedChallenge || null;
+      let challengeId = (selectedChallenge && selectedChallenge !== "none") ? selectedChallenge : null;
       if (isCreatingChallenge && newChallengeText.trim()) {
         const newChallengeId = crypto.randomUUID();
         const { error: challengeError } = await supabase
@@ -479,7 +479,7 @@ export function CreateProjectDialog({
                   <SelectValue placeholder="Select a challenge or leave empty" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">No Challenge</SelectItem>
+                  <SelectItem value="none">No Challenge</SelectItem>
                   {challenges.map((challenge) => (
                     <SelectItem key={challenge.id} value={challenge.id}>
                       {challenge.challenge_text.substring(0, 50)}

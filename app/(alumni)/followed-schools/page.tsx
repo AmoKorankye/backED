@@ -36,73 +36,78 @@ export default function FollowedSchoolsPage() {
 
   useEffect(() => {
     const fetchFollowedSchools = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
 
-      if (!user) {
-        router.push("/login");
-        return;
-      }
+        if (!user) {
+          router.push("/login");
+          return;
+        }
 
-      // Get alumni user
-      const { data: alumniUser } = await supabase
-        .from("alumni_users")
-        .select("id")
-        .eq("user_id", user.id)
-        .single();
+        // Get alumni user
+        const { data: alumniUser } = await supabase
+          .from("alumni_users")
+          .select("id")
+          .eq("user_id", user.id)
+          .single();
 
-      if (!alumniUser) {
-        // User is authenticated but has no alumni profile - complete signup
-        router.push("/signup");
-        return;
-      }
+        if (!alumniUser) {
+          // User is authenticated but has no alumni profile - complete signup
+          router.push("/signup");
+          return;
+        }
 
-      setAlumniUserId(alumniUser.id);
+        setAlumniUserId(alumniUser.id);
 
-      // Fetch followed schools with school details
-      const { data: follows, error } = await supabase
-        .from("alumni_followed_schools")
-        .select(
+        // Fetch followed schools with school details
+        const { data: follows, error } = await supabase
+          .from("alumni_followed_schools")
+          .select(
+            `
+            id,
+            created_at,
+            schools (*)
           `
-          id,
-          created_at,
-          schools (*)
-        `
-        )
-        .eq("alumni_user_id", alumniUser.id)
-        .order("created_at", { ascending: false });
+          )
+          .eq("alumni_user_id", alumniUser.id)
+          .order("created_at", { ascending: false });
 
-      if (error) {
-        console.error("Error fetching followed schools:", error);
-        toast.error("Failed to load followed schools");
+        if (error) {
+          console.error("Error fetching followed schools:", error);
+          toast.error("Failed to load followed schools");
+          return;
+        }
+
+        // Transform and get project counts
+        const transformedSchools: FollowedSchool[] = await Promise.all(
+          (follows || [])
+            .filter((f: any) => f.schools)
+            .map(async (f: any) => {
+              // Get project count for each school
+              const { count } = await supabase
+                .from("projects")
+                .select("*", { count: "exact", head: true })
+                .eq("school_id", f.schools.id)
+                .eq("status", "active");
+
+              return {
+                ...f.schools,
+                follow_id: f.id,
+                followed_at: f.created_at,
+                project_count: count || 0,
+              };
+            })
+        );
+
+        setSchools(transformedSchools);
+      } catch (err) {
+        console.error("Unexpected error loading followed schools:", err);
+        toast.error("Something went wrong. Please try again.");
+      } finally {
         setLoading(false);
-        return;
       }
-
-      // Transform and get project counts
-      const transformedSchools: FollowedSchool[] = await Promise.all(
-        (follows || [])
-          .filter((f: any) => f.schools)
-          .map(async (f: any) => {
-            // Get project count for each school
-            const { count } = await supabase
-              .from("projects")
-              .select("*", { count: "exact", head: true })
-              .eq("school_id", f.schools.id)
-              .eq("status", "active");
-
-            return {
-              ...f.schools,
-              follow_id: f.id,
-              followed_at: f.created_at,
-              project_count: count || 0,
-            };
-          })
-      );
-
-      setSchools(transformedSchools);
-      setLoading(false);
     };
 
     fetchFollowedSchools();
