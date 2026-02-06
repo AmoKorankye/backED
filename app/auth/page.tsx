@@ -230,6 +230,7 @@ function AuthPageContent() {
               fill
               className="object-cover"
               priority
+              unoptimized
             />
             {/* Gradient Overlay */}
             <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
